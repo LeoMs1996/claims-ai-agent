@@ -59,6 +59,8 @@ def _chat(
         # 固定种子仅尽力复现；服务端实现与模型版本也会影响结果。
         seed=seed,
         model_kwargs={"response_format": {"type": response_format}},
+        # GLM思考模型在客服问答场景先静默推理数秒，正文才开始流出，破坏流式体感。
+        extra_body={"thinking": {"type": "disabled"}} if settings.model_provider == 'bailian' else None,
         timeout=120.0,
         max_retries=max_retries,
     )

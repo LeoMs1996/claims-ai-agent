@@ -101,11 +101,11 @@ python health_check.py
 
 请求支持description或claim_text，以及可选policy_id、amount。返回的是审核建议，不执行支付。SQLite检查点保存在`.data/checkpoints.sqlite`，重启可恢复。拒赔需授权人工提供条款依据；低置信度、证据不足和大额转人工。生产必须配置CLAIMS_API_KEY和REVIEWER_API_KEY；示例不支持多租户行级权限，也不能直接横向扩容。
 
-## 本地模型与可选百炼
+## 本地模型与可选GLM云端
 
 MODEL_PROVIDER默认local，使用LOCAL_LLM_BASE_URL/API_KEY和LOCAL_FAST/MAIN/PRO/VISION_MODEL。名称必须与推理服务实际注册名一致。本地服务端口默认8000，应用端口8001。
 
-只有设置MODEL_PROVIDER=bailian才使用OPENAI_BASE_URL/API_KEY及QWEN_*_MODEL；已有百炼密钥无需删除，但不会自动用于本地模式。三个qwen别名分别映射通用、强推理、轻量模型。
+只有设置MODEL_PROVIDER=bailian才使用OPENAI_BASE_URL/API_KEY及QWEN_*_MODEL，默认指向GLM的OpenAI兼容端点（https://open.bigmodel.cn/api/paas/v4）；已有其他厂商密钥无需删除，但不会自动用于本地模式。三个模型档位（plus/max/flash）默认均为glm-5.3，vision档位为glm-4v-plus。
 
 ## 业务、RAG与记忆接入
 

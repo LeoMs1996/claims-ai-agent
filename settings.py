@@ -15,15 +15,15 @@ class Settings(BaseSettings):
     business_mode: Literal['real', 'demo'] = 'real'
     local_llm_base_url: str = 'http://127.0.0.1:8000/v1'
     local_llm_api_key: SecretStr = SecretStr('EMPTY')
-    openai_base_url: str = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    openai_base_url: str = 'https://open.bigmodel.cn/api/paas/v4'
     openai_api_key: SecretStr = SecretStr('')
     local_fast_model: str = 'Qwen2.5-14B-Instruct'
     local_main_model: str = 'Qwen2.5-32B-Instruct'
     local_pro_model: str = 'Qwen2.5-72B-Instruct'
     local_vision_model: str = 'Qwen2.5-VL-7B-Instruct'
-    qwen_plus_model: str = 'qwen-plus'
-    qwen_max_model: str = 'qwen-max'
-    qwen_flash_model: str = 'qwen-flash'
+    qwen_plus_model: str = 'glm-5.3'
+    qwen_max_model: str = 'glm-5.3'
+    qwen_flash_model: str = 'glm-5.3'
     embedding_base_url: str = 'http://127.0.0.1:8000/v1'
     embedding_model: str = 'bge-m3'
     embedding_api_key: SecretStr = SecretStr('EMPTY')
@@ -62,5 +62,5 @@ class Settings(BaseSettings):
         local = {'flash': self.local_fast_model, 'plus': self.local_main_model,
                  'max': self.local_pro_model, 'vision': self.local_vision_model}
         cloud = {'flash': self.qwen_flash_model, 'plus': self.qwen_plus_model,
-                 'max': self.qwen_max_model, 'vision': 'qwen-vl-plus'}
+                 'max': self.qwen_max_model, 'vision': 'glm-4v-plus'}
         return (local if self.model_provider == 'local' else cloud)[tier]
