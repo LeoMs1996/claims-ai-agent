@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "active": "1.0.0",
+    "versions": {
+      "1.0.0": "active"
+    }
+  },
+  "expert": {
+    "active": "1.0.0",
+    "versions": {
+      "1.0.0": "active",
+      "1.1.0": "canary"
+    }
+  },
+  "triage": {
+    "active": "1.0.0",
+    "versions": {
+      "1.0.0": "active"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{"claim_id": "CLM-EVAL-001", "scenario": "auto", "policy_id": "POL-2024-001", "amount": 1200.0, "golden_band": "auto", "golden_decision": "accept", "description": "停车场低速倒车刮擦护栏，无人员受伤，材料齐全，申请车辆维修理赔。"}
+{"claim_id": "CLM-EVAL-002", "scenario": "auto_minor", "policy_id": "POL-2024-005", "amount": 300.0, "golden_band": "auto", "golden_decision": "accept", "description": "拖车过程中轻微刮伤后保险杠，零免赔保单，维修发票已提供。"}
+{"claim_id": "CLM-EVAL-003", "scenario": "review_missing", "policy_id": "POL-2024-001", "amount": 8000.0, "golden_band": "review", "golden_decision": "review", "description": "夜间小区内双方轻微碰撞，责任明确，但维修发票尚未提交。"}
+{"claim_id": "CLM-EVAL-004", "scenario": "reject_expired", "policy_id": "POL-2024-002", "amount": 5600.0, "golden_band": "reject", "golden_decision": "reject", "description": "车辆停在路边被剐蹭，保单已过期未续保，申请理赔。"}
+{"claim_id": "CLM-EVAL-005", "scenario": "reject_exclusion", "policy_id": "POL-2024-003", "amount": 9800.0, "golden_band": "reject", "golden_decision": "reject", "description": "驾驶人醉酒驾驶发生单方事故撞上护栏，血液酒精含量超标。"}
+{"claim_id": "CLM-EVAL-006", "scenario": "risk_review", "policy_id": "POL-2024-003", "amount": 4500.0, "golden_band": "review", "golden_decision": "review", "description": "三个月内第三次出险报案，事故经过描述与前两次高度相似，反欺诈需调查。"}
+{"claim_id": "CLM-EVAL-007", "scenario": "over_limit", "policy_id": "POL-2024-004", "amount": 600000.0, "golden_band": "review", "golden_decision": "review", "description": "重大交通事故车辆全损，维修与施救费用合计远超保单限额，涉及诉讼风险。"}

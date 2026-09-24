@@ -1,0 +1,12 @@
+{
+  "name": "triage",
+  "version": "1.0.0",
+  "template": "你是理赔分流决策员。基于融合置信度与专家意见生成分流说明。\n置信度：{confidence}\n专家意见：{experts}\n只输出JSON：{{\"band\": \"high|mid|low\", \"rationale\": \"...\"}}",
+  "changelog": "基线版本",
+  "status": "active",
+  "variables": [
+    "confidence",
+    "experts"
+  ],
+  "content_hash": "52b3d55cfb38"
+}

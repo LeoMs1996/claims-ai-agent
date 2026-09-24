@@ -1,0 +1,12 @@
+{
+  "name": "classification",
+  "version": "1.0.0",
+  "template": "你是车险理赔分类员。根据报案信息判断intent与复杂度。\n报案：{claim_text}\n金额：{amount}\n只输出JSON：{{\"intent\": \"claim|consult|status\", \"complex\": true/false, \"reason\": \"...\"}}",
+  "changelog": "基线版本",
+  "status": "active",
+  "variables": [
+    "claim_text",
+    "amount"
+  ],
+  "content_hash": "22de2decd305"
+}

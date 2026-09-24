@@ -4,6 +4,18 @@
 
 完整逐项映射及验证边界见 [实现验收清单](docs/implementation-matrix.md)；原文API与业务规则修正见 [差异记录](docs/material-differences.md)。
 
+## 进阶改造（三方向组合）
+
+在上述课堂实现之上，`advanced/` 包叠加了进阶改造：模拟保单查询API与LangChain工具、任务画像+复杂度升档的模型路由、LangGraph多节点判责图（RAG条款检索节点 + 置信度三分流：高置信自动判责/中置信转人工/低置信拒赔且必须引条款）、LangSmith opt-in追踪与本地链路追踪、Prompt版本管理、pro→main→fast→规则兜底的多级降级、结构化输出校验失败自动重试，以及带黄金标注的评测数据集。全部能力离线可跑：
+
+```bash
+python -m advanced.run_demo          # 离线全场景演示（自动启动模拟保单API）
+python -m advanced.run_demo --eval   # 评测数据集（准确率+混淆矩阵）
+python -m advanced.run_demo --live --scenario auto   # 接入.env模型端点跑真实链路
+```
+
+改造清单、流程图、目录说明、业务结合点与验证记录见 [进阶改造文档](docs/advanced-upgrade.md)。
+
 ## 结构与职责
 
 ```text
