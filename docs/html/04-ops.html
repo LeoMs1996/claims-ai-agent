@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API · 部署 · 运维 — 理赔 Agent</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#182250', primaryBorderColor: '#5b8cff', lineColor: '#5b8cff', fontSize: '14px' } });</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>⚙️ API · 部署 · 运维 · 测试</h1>
+  <p>10 条 HTTP 路由 · 安装与启动 · Docker 基础设施 · CI 门禁 · 可观测性 · 测试矩阵</p>
+</header>
+
+<nav class="top">
+  <a href="index.html">🏠 项目总览</a>
+  <a href="01-architecture.html">🏗️ 架构与模块</a>
+  <a href="02-pipeline.html">🔗 完整链路</a>
+  <a href="03-dialogue.html">💬 对话走链路</a>
+  <a class="active" href="04-ops.html">⚙️ API·部署·运维</a>
+</nav>
+
+<h2>🛣️ API 路由全解</h2>
+<table>
+<tr><th>路由</th><th>方法</th><th>行为</th></tr>
+<tr><td><code>/health</code></td><td>GET</td><td>仅进程存活，不代表模型可用</td></tr>
+<tr><td><code>/api/claims/process</code></td><td>POST</td><td>创建审核工作流；缺保单号进入补材料中断（支持 description/claim_text + 可选 policy_id/amount）</td></tr>
+<tr><td><code>/api/demo/claims/process</code></td><td>POST</td><td>固定合成案件跑完整状态机；<span class="badge bad">仅非生产环境</span></td></tr>
+<tr><td><code>/api/claims/{claim_id}</code></td><td>GET</td><td>查询已持久化案件状态</td></tr>
+<tr><td><code>/api/claims/{claim_id}/supplement</code></td><td>POST</td><td>仅补材料阶段接受 policy_id</td></tr>
+<tr><td><code>/api/claims/{claim_id}/review</code></td><td>POST</td><td>X-Reviewer-Key 认证后恢复人工审核</td></tr>
+<tr><td><code>/metrics</code></td><td>GET</td><td>Prometheus 格式指标（六组业务指标）</td></tr>
+<tr><td><code>/docs</code></td><td>GET</td><td>自动生成的交互式 API 文档（Try it out）</td></tr>
+<tr><td><code>/</code></td><td>GET</td><td>理赔智能工作台（对话 UI）</td></tr>
+<tr><td><code>/api/documents/analyze</code></td><td>POST</td><td>内存解析并识别最多 6 份理赔单证</td></tr>
+<tr><td><code>/api/assistant/stream</code></td><td>POST</td><td>结合案件和单证上下文的流式问答（SSE）</td></tr>
+</table>
+<div class="note bad">生产必须配置 <code>CLAIMS_API_KEY</code> 和 <code>REVIEWER_API_KEY</code>；示例不支持多租户行级权限，也不能直接横向扩容。SQLite 检查点在 <code>.data/checkpoints.sqlite</code>，重启可恢复。</div>
+
+<h2>📦 安装与本地启动</h2>
+<pre><code># Python 3.10 兼容；推荐干净的 3.12 venv
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip check
+
+# 首次创建；已有 .env 不要覆盖
+if [ ! -f .env ]; then cp .env.example .env; chmod 600 .env; fi
+
+# 离线验证
+python -m pytest -q
+python claims_agent.py --demo
+python -m demos.module04_demo --prompts
+python -m scripts.benchmark_parsers
+
+# 启动 HTTP 服务
+uvicorn app:app --host 127.0.0.1 --port 8001
+curl -fsS http://127.0.0.1:8001/health
+python health_check.py   # 三条健康与状态机验证
+
+# 或一键验证
+bash scripts/verify.sh</code></pre>
+
+<h2>🐳 部署拓扑</h2>
+<div class="mermaid">
+flowchart TB
+    subgraph host["Docker Host"]
+        subgraph infra["docker compose --profile infra"]
+            etcd["etcd"] --- minio["MinIO"]
+            minio --- milvus[("Milvus")]
+            redis[("Redis")]
+        end
+        subgraph appc["docker-compose.yml 应用"]
+            api["理赔 Agent 容器<br/>非 root · 8001 端口 · 单工作进程"]
+        end
+        subgraph lf["docker-compose.langfuse.yml"]
+            langfuse["自托管 LangFuse<br/>需 DB 密码/auth secret/salt"]
+        end
+    end
+    gh["GitHub Actions<br/>deploy.yml"] -->|检查·测试·容器集成·构建| reg["镜像仓库（固定版本）"]
+    reg -->|deploy.sh 失败回退| api
+    api --> infra
+    api -. LANGFUSE_ENABLED .-> langfuse
+</div>
+<pre><code># 基础设施联调（需 Docker）
+docker compose --profile infra up -d --wait etcd minio milvus redis
+RUN_MILVUS_TESTS=1 python -m pytest -q tests/test_milvus_integration.py
+
+# LangFuse 自托管
+docker compose -f docker-compose.langfuse.yml up -d
+# 控制台建项目 → 填 .env public/secret key → 开启 LANGFUSE_ENABLED
+python -m demos.langfuse_demo --invoke
+
+# 上线前门禁
+python -m deploy.regression_gate metrics.json --cost-budget 实际预算</code></pre>
+
+<h2>🔒 安全边界与生产要求</h2>
+<div class="grid c2">
+<div class="card">
+<h3>密钥与鉴权</h3>
+<ul>
+<li><code>settings.py</code> Pydantic 校验环境密钥；<code>.env.example</code> 不含真实密钥</li>
+<li>生产必配 <code>CLAIMS_API_KEY</code>（业务）与 <code>REVIEWER_API_KEY</code>（人工审核恢复）</li>
+<li>附件仅内存处理不落盘；中间件脱敏 PII 后才进审计/追踪</li>
+</ul>
+</div>
+<div class="card">
+<h3>诚实性原则</h3>
+<ul>
+<li>真实模式未配置业务适配器 → <b>转人工</b>，不返回假保单/虚构定损</li>
+<li>流式服务不返回 usage 时用量标「未知」，不声称零成本</li>
+<li>CI 自动部署默认关闭：需生产审批、SSH 信任、固定镜像与目标检出版本</li>
+</ul>
+</div>
+</div>
+
+<h2>📈 可观测性矩阵</h2>
+<table>
+<tr><th>维度</th><th>入口</th><th>内容</th></tr>
+<tr><td>业务指标</td><td><code>GET /metrics</code></td><td>monitoring.py 六组 Prometheus 指标；配 deploy/ 告警规则</td></tr>
+<tr><td>LLM 追踪</td><td>LangFuse v2（主）/ v3（isolated_deep）</td><td>嵌套 trace + 脱敏回调 + Token 统计</td></tr>
+<tr><td>健康</td><td><code>health_check.py</code></td><td>三条 HTTP 健康与状态机验证</td></tr>
+<tr><td>审计</td><td>middleware_audit.py</td><td>脱敏后的请求/响应审计日志</td></tr>
+<tr><td>回归门禁</td><td><code>deploy.regression_gate</code></td><td>固定历史数据集 + 成本预算门禁</td></tr>
+</table>
+
+<h2>🧪 测试矩阵</h2>
+<div class="mermaid">
+flowchart LR
+    t1["单元测试<br/>agents/tools/models"] --> t2["SDK 协议测试<br/>LangChain/LangGraph 版本契约"]
+    t2 --> t3["状态机测试<br/>四条分支+中断恢复"]
+    t3 --> t4["HTTP 集成测试<br/>FastAPI 路由+鉴权"]
+    t4 --> t5["Milvus 集成（可选）<br/>RUN_MILVUS_TESTS=1"]
+    t3 -.对拍.-> demo["demos/mock_claim.py<br/>合成案件基准"]
+</div>
+<pre><code>python -m pytest -q                       # 全量离线
+python -m scripts.benchmark_parsers       # 解析基准
+bash scripts/verify.sh                    # 启动+pytest 两条链路</code></pre>
+
+<h2>⚠️ 已知边界（务必阅读）</h2>
+<div class="card">
+<ul>
+<li>离线演示<b>不代表</b>真实模型、赔付系统或向量服务已联通。</li>
+<li>对话页「真实模式」（LLM 问答、图片识别）需 <code>.env</code> 中 bailian/GLM 凭证可用；纯理赔状态机演示不受影响。</li>
+<li>扫描 PDF 需另接 OCR；ClaimVectorStore 默认不删除旧集合。</li>
+<li>示例不支持多租户行级权限、不能直接横向扩容。</li>
+<li>固定 seed 只尽力复现，不保证完全一致。</li>
+<li>部署操作和真实业务通知均未在实现中执行。</li>
+</ul>
+</div>
+
+<h2>🔗 延伸阅读（仓库内）</h2>
+<ul>
+<li><code>docs/implementation-matrix.md</code> — 完整逐项映射及验证边界（实现验收清单）</li>
+<li><code>docs/material-differences.md</code> — 原文 API 与业务规则修正（差异记录）</li>
+<li><code>demos/*.md</code> — 本套 HTML 图表的 Mermaid 源文件（状态机/置信度/RAG/本地部署架构）</li>
+<li><code>isolated_deep/README.md</code> — Deep Agents 独立环境说明</li>
+</ul>
+
+<footer><a href="03-dialogue.html">← 上一页：对话走链路</a> · <a href="index.html">返回总览</a></footer>
+</div>
+</body>
+</html>

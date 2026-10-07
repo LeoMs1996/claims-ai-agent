@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>架构与模块详解 — 理赔 Agent</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#182250', primaryBorderColor: '#5b8cff', lineColor: '#5b8cff', fontSize: '14px' } });</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>🏗️ 架构与模块详解</h1>
+  <p>agents 编排层 · tools 能力层 · adapters 后端抽象 · models 契约 · prompts 模板 · middleware 管道 · memory 记忆 · observability 追踪</p>
+</header>
+
+<nav class="top">
+  <a href="index.html">🏠 项目总览</a>
+  <a class="active" href="01-architecture.html">🏗️ 架构与模块</a>
+  <a href="02-pipeline.html">🔗 完整链路</a>
+  <a href="03-dialogue.html">💬 对话走链路</a>
+  <a href="04-ops.html">⚙️ API·部署·运维</a>
+</nav>
+
+<h2>🧩 总体组件关系</h2>
+<div class="mermaid">
+flowchart TB
+    subgraph app["app.py（FastAPI）"]
+        routes["路由层：claims/demo/documents/assistant/metrics"]
+        auth["鉴权：CLAIMS_API_KEY / REVIEWER_API_KEY"]
+        sse["SSE 流式问答引擎"]
+    end
+    subgraph agents["agents/ 编排层"]
+        ca["claim_agent.py<br/>build_claim_graph()<br/>intake·policy·experts·auto·investigate·review"]
+        ra["risk_agent.py<br/>结构化专家意见"]
+        cf["confidence.py"]
+        mem["memory.py<br/>ClaimContextManager"]
+        mw["middleware_audit.py"]
+        obs["observability.py"]
+        dca["deep_claims_agent.py"]
+    end
+    subgraph tools["tools/ 能力层"]
+        pt["policy_tool 保单查询"]
+        mt["medical_tool 医保核验"]
+        ct["claim_tool 注册与审批"]
+        lc["llm_calls 同步/流式"]
+        rr["rag_retrieval Milvus RAG"]
+        wp["claim_write_producer Outbox"]
+        da["document_analysis 单证解析"]
+        mc["material_check 材料审核"]
+    end
+    subgraph base["基础设施"]
+        ad["adapters/<br/>BusinessBackend / DemoBackend"]
+        cfg["config.py 模型工厂"]
+        st["settings.py 环境密钥"]
+    end
+    routes --> ca
+    sse --> cfg
+    ca --> ra
+    ra --> lc
+    ca --> cf
+    ca --> mem
+    ca --> mw
+    mw --> obs
+    ca --> ct
+    ct --> pt & mt & wp
+    sse --> da & mc
+    pt & mt --> ad
+    rr --> ad
+    ca --> cfg
+    cfg --> st
+</div>
+
+<h2>1️⃣ agents/ — 编排层</h2>
+
+<h3>claim_agent.py：LangGraph 状态机核心</h3>
+<div class="card">
+<p>核心函数 <code>build_claim_graph(services)</code> 构建主审核图。节点：<code>intake → policy → experts → (auto | investigate | review) → END</code>；专家子图 <code>expert --Send并行--&gt; aggregate</code>；另有规划执行图 <code>planner → execute</code>。两个 <code>interrupt()</code> 中断点：</p>
+<ul>
+  <li><b>补材料中断</b>：<code>{kind: 'information', missing: ['policy_id'], round: n+1}</code> — 缺保单号时暂停等待补充；</li>
+  <li><b>人工审核中断</b>：<code>{kind: 'review', reason: '需要人工核实证据或大额审批'}</code> — 低置信/大额/证据不足时挂起。</li>
+</ul>
+<p>状态通过 SQLite 检查点持久化（<code>.data/checkpoints.sqlite</code>），<b>重启可恢复</b>。</p>
+</div>
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> intake
+    intake --> policy : 材料齐全
+    intake --> intake : 缺材料 interrupt(information)
+    policy --> experts : 核验成功
+    policy --> review : 失败/缺配置 interrupt(review)
+    state experts {
+        [*] --> fanout
+        fanout --> 定损
+        fanout --> 风控
+        fanout --> 判责
+        定损 --> aggregate
+        风控 --> aggregate
+        判责 --> aggregate
+        aggregate --> [*]
+    }
+    experts --> auto : 高置信·低风险·证据足
+    experts --> investigate : 风险>0.7
+    experts --> review : 大额/缺证据/低置信/分歧
+    auto --> [*]
+    investigate --> [*]
+    review --> [*] : 授权恢复后记录人工意见
+</div>
+
+<h3>risk_agent.py：三专家结构化意见</h3>
+<div class="card">
+<p>每个专家（定损/风控/判责）通过本地模型产出<strong>结构化 Pydantic 意见</strong>（意见、评分、依据），经 <code>langgraph.types.Send</code> 并行分发到同一 <code>expert</code> 节点，再由 <code>aggregate</code> 节点汇总为统一消息集。演示模式下使用明确标注的合成专家结果，不实际调用模型。</p>
+</div>
+
+<h3>confidence.py：置信度评估系统</h3>
+<div class="mermaid">
+flowchart TB
+    data["① 输入已核实数据与证据似然"] --> models["② 分类模型：LLM + 规则引擎"]
+    models --> confidence["③ Softmax · 熵 · 贝叶斯 · 多模型融合"]
+    confidence --> calibration["④ 正温度缩放 + ECE 校准评估"]
+    calibration --> evidence{"⑤ 证据完整且非大额？"}
+    evidence -->|否| manual["人工复核"]
+    evidence -->|是| high{"评分 &gt; 0.90？"}
+    high -->|是| suggest["受理建议"]
+    high -->|否| mid{"评分 &gt; 0.70？"}
+    mid -->|是| quick["快速复核"]
+    mid -->|否| low{"评分 &gt; 0.50？"}
+    low -->|是| manual
+    low -->|否| investigate["调查核实"]
+</div>
+<div class="note">综合评分是材料的启发式算法，<b>不等于已校准的赔付概率</b>；低分不自动拒赔。<code>confidence_system.py</code> 是它的公共入口，复用 agents 实现。</div>
+
+<h3>memory.py：对话记忆系统</h3>
+<div class="mermaid">
+flowchart LR
+    turns["多轮对话消息"] --> win["窗口记忆<br/>最近 N 轮"]
+    win --> summ["摘要记忆<br/>注入摘要链压缩"]
+    win --> ent["实体抽取<br/>冲突检测"]
+    summ --> ctx["ClaimContextManager<br/>统一上下文"]
+    ent --> ctx
+    ctx --> redis[("Redis<br/>跨会话持久化")]
+    ctx --> lg["LangGraph 状态"]
+</div>
+<p class="muted">可注入 Redis 客户端、摘要链和实体抽取器；Qwen 系模型需注入匹配的 token_counter，默认 cl100k_base 仅作教学计数。</p>
+
+<h3>middleware_audit.py：LLM 调用中间件管道</h3>
+<div class="mermaid">
+flowchart LR
+    req["模型请求"] --> p1["🔒 脱敏<br/>PII 掩码"] --> p2["🚦 限流"] --> p3["⚡ 缓存<br/>四档 LRU"] --> p4["🔁 重试"] --> p5["🤖 LLM 调用"] --> p6["📜 审计日志"] --> p7["📊 Token 统计"] --> resp["响应"]
+    p5 -. 嵌套追踪 .-> lf["LangFuse v2<br/>脱敏回调"]
+</div>
+
+<h2>2️⃣ tools/ — 能力层（八类业务工具）</h2>
+<table>
+<tr><th>工具</th><th>职责</th><th>关键设计</th></tr>
+<tr><td><code>policy_tool.py</code></td><td>保单及理赔历史查询</td><td>经 adapters 查真实/Demo 后端，未配置显式失败</td></tr>
+<tr><td><code>medical_tool.py</code></td><td>异步医保核验</td><td>异步接口，真实协议需显式注册</td></tr>
+<tr><td><code>claim_tool.py</code></td><td>工具注册、审批绑定、并行消息闭环</td><td>写操作必须绑定审批结果</td></tr>
+<tr><td><code>llm_calls.py</code></td><td>同步与流式模型调用</td><td>统一经中间件管道</td></tr>
+<tr><td><code>rag_retrieval.py</code></td><td>文档加载、Milvus、混合检索、引用校验</td><td>加权 RRF 融合；reranker 需已核实后注入</td></tr>
+<tr><td><code>claim_write_producer.py</code></td><td>幂等 Outbox、重试、对账</td><td>服务端 authorize 核对案件/金额/收款方后才入 Outbox</td></tr>
+<tr><td><code>document_analysis.py</code></td><td>PDF/DOCX/文本/图片单证解析</td><td>内存处理不落盘，最多 6 份</td></tr>
+<tr><td><code>material_check.py</code></td><td>材料齐全性审核</td><td>按附件类型核查三类材料，三轮回流</td></tr>
+</table>
+
+<h3>RAG 检索流水线</h3>
+<div class="mermaid">
+flowchart LR
+    docs["条款/规则文档<br/>险种·版本·生效日期"] --> load["load_documents<br/>加载校验"] --> chunk["切分与嵌入"] --> milvus[("Milvus 集合")]
+    q["查询"] --> dense["稠密检索"] --> rrf["加权 RRF 融合"]
+    q --> sparse["稀疏检索"] --> rrf
+    rrf --> rerank["重排（可选 reranker）"] --> cite["引用校验"] --> out["带引用结果"]
+</div>
+<p class="muted">扫描版 PDF 需另接 OCR；ClaimVectorStore 默认不删除旧集合。</p>
+
+<h3>写回（Outbox）可靠性</h3>
+<div class="mermaid">
+sequenceDiagram
+    participant G as LangGraph
+    participant A as 服务端 authorize
+    participant O as Outbox 表
+    participant C as 消费者
+    participant D as 下游理赔系统
+    G->>A: 审批通过 + 案件/金额/收款方参数
+    A->>O: 核对通过后写入（幂等键）
+    O->>C: 投递
+    C->>D: 传递相同幂等键
+    D-->>C: 确认/失败
+    C->>O: 对账标记完成/重试
+</div>
+
+<h2>3️⃣ adapters/ — 真实与演示双后端</h2>
+<div class="grid c2">
+<div class="card">
+<h3>BusinessBackend（真实）</h3>
+<p><code>BusinessBackend(adapters={...})</code> 注册组织内真实协议。保单 HTTP 实现来自培训材料；其余接口没有协议，<b>必须显式注册</b>，不能靠默认成功返回值闭环。通知也需审批。</p>
+<span class="badge bad">未配置 → 显式失败 → 转人工</span>
+</div>
+<div class="card">
+<h3>DemoBackend（演示）</h3>
+<p>仅提供材料中的固定教学案例；<code>claims_agent.py --demo</code> 使用明确标注的合成专家结果，不执行实际模型调用。数据标注 <code>demo: true</code> / <code>source: 合成数据</code>；生产环境自动禁用演示入口。</p>
+<span class="badge ok">教学/演示专用</span>
+</div>
+</div>
+
+<h2>4️⃣ models/ · prompts/</h2>
+<div class="card">
+<ul>
+<li><b>models/schemas.py</b>：Pydantic 契约（ClaimRequest/ClaimResponse 等）与 Schema 迁移；<b>models/parsers.py</b>：有限修复（如剥 ```json 围栏）；<b>models/workbench.py</b>：工作台对话模型。</li>
+<li><b>prompts/review_prompt.py / risk_prompt.py</b>：四场景模板、动态规则注入与本地固定版本，保证可复现。</li>
+</ul>
+</div>
+
+<h2>5️⃣ isolated_deep/ — 独立 Deep Agents 环境</h2>
+<div class="card">
+<p>官方 Deep Agents 单独安装于独立依赖环境，配 LangFuse v3 追踪；<code>agents/deep_claims_agent.py</code> 为延迟入口。与主项目（LangFuse v2）隔离，避免依赖冲突，详见 <code>isolated_deep/README.md</code>。LangSmith 演示已移除，自动追踪关闭（langsmith 包仍是 LangChain 0.3 强制传递依赖）。</p>
+</div>
+
+<footer><a href="index.html">← 返回总览</a> · <a href="02-pipeline.html">下一页：完整链路 →</a></footer>
+</div>
+</body>
+</html>

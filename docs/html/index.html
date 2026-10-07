@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>项目总览 — 理赔 Agent 培训材料实现</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#182250', primaryBorderColor: '#5b8cff', lineColor: '#5b8cff', fontSize: '14px' } });</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>🚗 理赔 Agent 培训材料实现 · 项目总览</h1>
+  <p>基于 LangChain 0.3 + LangGraph 的车险理赔智能审核系统：多轮对话意图识别 → 材料审核 → LangGraph 状态机 → 三专家并行审核 → 置信度融合 → 决策建议 / 人工复核（HITL）</p>
+  <div class="tag-row">
+    <span class="badge info">Python 3.10+</span>
+    <span class="badge info">LangChain 0.3.14</span>
+    <span class="badge info">LangGraph + Send 并行</span>
+    <span class="badge info">FastAPI :8001</span>
+    <span class="badge info">Milvus 混合检索</span>
+    <span class="badge info">Redis 记忆持久化</span>
+    <span class="badge info">LangFuse v2 追踪</span>
+    <span class="badge info">Prometheus 指标</span>
+  </div>
+</header>
+
+<nav class="top">
+  <a class="active" href="index.html">🏠 项目总览</a>
+  <a href="01-architecture.html">🏗️ 架构与模块</a>
+  <a href="02-pipeline.html">🔗 完整链路</a>
+  <a href="03-dialogue.html">💬 对话走链路</a>
+  <a href="04-ops.html">⚙️ API·部署·运维</a>
+</nav>
+
+<h2>📌 一句话理解这个项目</h2>
+<div class="card">
+<p>这是一个<strong>教学级但工程完整</strong>的车险理赔智能审核 Agent：用户用<strong>自然语言对话</strong>报案，系统自动识别意图、审核材料齐全性、驱动 LangGraph 状态机跑完「报案受理 → 单证核查 → 保单核验 → 三专家并行（定损/风控/判责）→ 置信度融合 → 决策建议」的完整链路；缺材料自动追问回流，高风险/低置信/大额自动转人工复核（HITL），授权审核员可携带 Key 恢复流程。</p>
+<p class="muted">设计原则：真实模式未配置业务适配器会<b>转人工</b>，绝不返回假保单或虚构定损；演示数据全部显式标注 <code>demo: true</code>、<code>source: 合成数据</code>；生产环境自动禁用演示入口。</p>
+</div>
+
+<h2>📊 项目规模速览</h2>
+<div class="grid c4">
+  <div class="card kpi"><div class="num">6</div><div class="lbl">对话意图分类</div></div>
+  <div class="card kpi"><div class="num">8+</div><div class="lbl">业务工具类</div></div>
+  <div class="card kpi"><div class="num">3</div><div class="lbl">并行专家（定损/风控/判责）</div></div>
+  <div class="card kpi"><div class="num">6</div><div class="lbl">Prometheus 指标组</div></div>
+  <div class="card kpi"><div class="num">4</div><div class="lbl">模型档位（fast/main/pro/vision）</div></div>
+  <div class="card kpi"><div class="num">10</div><div class="lbl">HTTP 路由</div></div>
+  <div class="card kpi"><div class="num">3</div><div class="lbl">离线演示场景</div></div>
+  <div class="card kpi"><div class="num">2</div><div class="lbl">后端（真实 Business / 演示 Demo）</div></div>
+</div>
+
+<h2>🗺️ 系统上下文图（谁能和它交互）</h2>
+<div class="mermaid">
+flowchart TB
+    subgraph users["用户与角色"]
+        u1["👤 报案用户<br/>浏览器对话工作台"]
+        u2["🧑‍💼 授权审核员<br/>X-Reviewer-Key"]
+        u3["运维 / SRE<br/>Prometheus + LangFuse"]
+    end
+    subgraph sys["理赔 Agent 系统（FastAPI :8001）"]
+        wb["Web 工作台<br/>多轮对话 + 附件"]
+        api["REST API<br/>/api/claims/*"]
+        lg["LangGraph 状态机<br/>intake→policy→experts→…"]
+    end
+    subgraph ext["外部依赖（可插拔）"]
+        llm["LLM 推理服务<br/>本地或 GLM 云端"]
+        milvus[("Milvus<br/>向量库 RAG")]
+        redis[("Redis<br/>记忆/缓存")]
+        lf["LangFuse<br/>链路追踪"]
+        biz["组织内真实业务系统<br/>保单/医保/回写"]
+    end
+    u1 --> wb
+    u2 --> api
+    u3 --> sys
+    wb --> api --> lg
+    sys --> llm
+    sys --> milvus
+    sys --> redis
+    sys -. 可观测 .-> lf
+    lg -. 未配置则转人工 .-> biz
+</div>
+<p class="muted">实线为主要数据流；虚线为可选/降级路径。真实业务接口未注册协议时<b>显式失败并转人工</b>，不伪造成功。</p>
+
+<h2>🧱 技术栈分层</h2>
+<div class="mermaid">
+flowchart LR
+    subgraph L5["展示层"]
+        A1["static/ 对话工作台<br/>意图·材料·流式问答·载入演示"]
+    end
+    subgraph L4["服务层 FastAPI"]
+        B1["app.py 路由/鉴权/SSE"]
+        B2["models/ Pydantic 契约"]
+    end
+    subgraph L3["编排层"]
+        C1["agents/claim_agent.py<br/>LangGraph + Send + HITL"]
+        C2["agents/risk_agent.py 三专家"]
+        C3["agents/confidence.py 置信度"]
+        C4["agents/memory.py 对话记忆"]
+        C5["agents/middleware_audit.py<br/>脱敏·限流·缓存·重试·审计"]
+    end
+    subgraph L2["能力层"]
+        D1["tools/ 八类业务工具"]
+        D2["prompts/ 四场景模板"]
+        D3["tools/rag_retrieval.py"]
+    end
+    subgraph L1["基础设施层"]
+        E1["adapters/ 真实/演示后端"]
+        E2["config.py 模型工厂·四档缓存"]
+        E3["settings.py 环境与密钥"]
+        E4["monitoring.py + LangFuse"]
+    end
+    L5 --> L4 --> L3 --> L2 --> L1
+</div>
+
+<h2>📁 目录结构与职责</h2>
+<pre><code>claims-agent-app/
+├── app.py                      # FastAPI、状态查询、补材料、授权审核恢复、SSE 流式问答
+├── settings.py                 # Pydantic 环境配置与密钥校验
+├── config.py                   # 本地模型工厂、四档缓存和任务参数
+├── claims_agent.py             # 端到端入口与明确标注的离线演示
+├── confidence_system.py        # 置信度公共入口，复用 agents 实现
+├── agents/                     # 审核编排、风险分析、置信度、记忆和中间件
+│   ├── claim_agent.py          #   LangGraph、Send 并行、HITL、规划执行
+│   ├── risk_agent.py           #   结构化专家意见与本地模型调用
+│   ├── confidence.py           #   Softmax/熵/贝叶斯/融合/温度/ECE
+│   ├── memory.py               #   窗口、摘要、实体冲突与 Redis 持久化
+│   ├── middleware_audit.py     #   脱敏、限流、缓存、重试、审计、Token 统计
+│   ├── observability.py        #   LangFuse v2 嵌套追踪和脱敏回调
+│   └── deep_claims_agent.py    #   独立 Deep Agents 环境的延迟入口
+├── tools/                      # 八类业务工具及模型、检索、回写能力
+│   ├── policy_tool.py          #   保单及理赔历史查询
+│   ├── medical_tool.py         #   异步医保核验
+│   ├── claim_tool.py           #   工具注册、审批绑定与并行消息闭环
+│   ├── llm_calls.py            #   同步与流式调用
+│   ├── rag_retrieval.py        #   文档加载、Milvus、混合检索及引用校验
+│   └── claim_write_producer.py #   幂等 Outbox、重试及对账
+├── adapters/                   # 真实接口与演示后端，未配置显式失败
+├── prompts/                    # 四场景模板、动态规则与本地固定版本
+├── models/                     # Pydantic 契约、有限修复和 Schema 迁移
+├── tests/                      # 单元、SDK 协议、状态机、HTTP 与可选 Milvus 集成
+├── demos/                      # 参数/消息/本地接口/LangFuse 演示及 Mermaid 源码
+├── isolated_deep/              # 官方 Deep Agents 独立依赖、运行时和测试
+├── scripts/                    # 安装验证、解析基准与 Schema 迁移
+├── deploy/                     # 对拍、门禁、环境配置、监控告警和运维手册
+├── monitoring.py               # Prometheus 六组业务指标
+├── health_check.py             # 三条 HTTP 健康与状态机验证
+├── docker-compose.yml          # 应用及 Redis/Milvus 基础设施
+└── .github/workflows/deploy.yml# 检查、测试、容器集成、构建及可选发布</code></pre>
+
+<h2>🤖 模型路由：本地推理 vs GLM 云端</h2>
+<div class="mermaid">
+flowchart LR
+    cfg["settings.py<br/>MODEL_PROVIDER"] -->|local 默认| local["本地 OpenAI 兼容推理<br/>LOCAL_LLM_BASE_URL :8000<br/>LOCAL_FAST/MAIN/PRO/VISION_MODEL"]
+    cfg -->|bailian 显式选择| cloud["百炼兼容端点<br/>默认 GLM<br/>https://open.bigmodel.cn/api/paas/v4<br/>glm-5.3 ×3 + glm-4v-plus"]
+    local --> tiers
+    subgraph tiers["四档模型"]
+        t1["fast 分类/轻任务"]
+        t2["main 通用审核"]
+        t3["pro 复杂推理"]
+        t4["vision 图片识别"]
+    end
+    tiers --> cache["config.py 四档缓存<br/>避免重复实例化"]
+</div>
+<div class="note">本地服务需支持 OpenAI 兼容的 chat / JSON / tools；模型名必须与推理服务注册名一致。部分流式服务不返回 usage，此时用量标记「未知」，不能声称零成本。</div>
+
+<h2>📚 文档导航（本套 HTML）</h2>
+<div class="grid c2">
+  <a class="card" href="01-architecture.html" style="text-decoration:none">
+    <h3>🏗️ 架构与模块详解</h3>
+    <p class="muted">agents / tools / adapters / models / prompts 逐模块拆解，含类关系图、中间件管道图、记忆系统图。</p>
+  </a>
+  <a class="card" href="02-pipeline.html" style="text-decoration:none">
+    <h3>🔗 完整链路</h3>
+    <p class="muted">LangGraph 状态机全景图、三专家并行时序图、置信度融合与校准、四条终局分支（受理/调查/人工/补材料）。</p>
+  </a>
+  <a class="card" href="03-dialogue.html" style="text-decoration:none">
+    <h3>💬 如何用对话走完整个链路</h3>
+    <p class="muted">意图分类器规则、材料审核三轮回流、逐轮示例对话剧本、SSE 事件流、curl/API 等价走法。</p>
+  </a>
+  <a class="card" href="04-ops.html" style="text-decoration:none">
+    <h3>⚙️ API · 部署 · 运维</h3>
+    <p class="muted">10 条路由全解、安装启动步骤、Docker/CI 部署、可观测性（Prometheus/LangFuse）、测试矩阵。</p>
+  </a>
+</div>
+
+<div class="note ok">✅ 内置完整合成演示数据：点 Web 工作台的「载入演示」即可注入材料齐全的合成案件（停车场刮擦，保单 POL-2024-001，金额 1286.40）跑通全链路，无需任何真实材料。</div>
+
+<footer>claims-ai-agent · 项目文档 · 生成于 2025</footer>
+</div>
+</body>
+</html>

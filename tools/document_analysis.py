@@ -98,7 +98,32 @@ def _parse_result(raw: str, file_name: str) -> DocumentAnalysis:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
     try:
-        payload = json.loads(cleaned)
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            start, end = cleaned.find("{"), cleaned.rfind("}")
+            if start < 0 or end <= start:
+                raise DocumentModelOutputError("模型未返回有效的单证识别结构") from None
+            try:
+                payload = json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError as exc:
+                raise DocumentModelOutputError("模型未返回有效的单证识别结构") from exc
+        fields = payload.get("fields")
+        if isinstance(fields, list):
+            try:
+                payload["fields"] = {
+                    str(item["name"]): str(item.get("value", "")) for item in fields
+                }
+            except (KeyError, TypeError) as exc:
+                raise DocumentModelOutputError("模型未返回有效的单证识别结构") from exc
+        warnings = payload.get("warnings")
+        if isinstance(warnings, str):
+            payload["warnings"] = [warnings] if warnings.strip() else []
+        if isinstance(payload.get("confidence"), str):
+            try:
+                payload["confidence"] = float(payload["confidence"])
+            except ValueError as exc:
+                raise DocumentModelOutputError("模型未返回有效的单证识别结构") from exc
         payload["document_id"] = uuid4().hex
         payload["file_name"] = file_name
         return DocumentAnalysis.model_validate(payload)
