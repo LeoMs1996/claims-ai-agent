@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     qwen_plus_model: str = 'glm-5.3'
     qwen_max_model: str = 'glm-5.3'
     qwen_flash_model: str = 'glm-5.3'
+    qwen_vision_model: str = 'glm-4.6v'
     embedding_base_url: str = 'http://127.0.0.1:8000/v1'
     embedding_model: str = 'bge-m3'
     embedding_api_key: SecretStr = SecretStr('EMPTY')
@@ -62,5 +63,5 @@ class Settings(BaseSettings):
         local = {'flash': self.local_fast_model, 'plus': self.local_main_model,
                  'max': self.local_pro_model, 'vision': self.local_vision_model}
         cloud = {'flash': self.qwen_flash_model, 'plus': self.qwen_plus_model,
-                 'max': self.qwen_max_model, 'vision': 'glm-4v-plus'}
+                 'max': self.qwen_max_model, 'vision': self.qwen_vision_model}
         return (local if self.model_provider == 'local' else cloud)[tier]

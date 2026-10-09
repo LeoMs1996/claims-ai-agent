@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话走完整个链路 — 理赔 Agent</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#182250', primaryBorderColor: '#5b8cff', lineColor: '#5b8cff', fontSize: '14px' } });</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>💬 如何用「对话方式」走完整个链路</h1>
+  <p>打开 http://127.0.0.1:8001/ · 多轮意图识别 → 材料审核三轮回流 → 理赔状态机 → 决策链路 trace · 附逐轮对话剧本与 curl 等价走法</p>
+</header>
+
+<nav class="top">
+  <a href="index.html">🏠 项目总览</a>
+  <a href="01-architecture.html">🏗️ 架构与模块</a>
+  <a href="02-pipeline.html">🔗 完整链路</a>
+  <a class="active" href="03-dialogue.html">💬 对话走链路</a>
+  <a href="04-ops.html">⚙️ API·部署·运维</a>
+</nav>
+
+<h2>🧠 对话引擎总流程（每次你发一条消息发生什么）</h2>
+<div class="mermaid">
+flowchart TB
+    msg["用户消息<br/>+ 可选附件（≤6份）"] --> cls["意图分类器（fast 模型）<br/>读取最近 6 条消息 + 上一轮意图<br/>返回 JSON: intent + confidence"]
+    cls --> six{"六类意图"}
+    six -->|理赔报案 / 材料审核 / 补充材料| mat["材料审核分支<br/>material_check + document_analysis"]
+    six -->|进度查询| prog["查询案件状态"]
+    six -->|条款咨询| rag["理赔提示 + RAG 合规约束"]
+    six -->|一般咨询| gen["通用基模回答"]
+    mat --> cont{"材料齐全？"}
+    cont -->|"否（&lt;3轮）"| ask["回流追问缺失材料<br/>保留累计附件"]
+    ask --> msg
+    cont -->|"3轮仍不齐"| human["建议转人工"]
+    cont -->|齐| chain["进入理赔状态机<br/>intake→policy→experts→…"]
+    chain --> ans["流式回答（SSE）<br/>决策链路 + 节点 trace"]
+    rag --> ans
+    gen --> ans
+    prog --> ans
+</div>
+
+<h2>🏷️ 六类意图与继承规则</h2>
+<table>
+<tr><th>意图</th><th>触发后行为</th></tr>
+<tr><td><span class="badge info">理赔报案</span></td><td>理赔专用提示 + 合规约束；进入材料审核</td></tr>
+<tr><td><span class="badge info">材料审核</span></td><td>核查三类材料齐全性，缺失追问</td></tr>
+<tr><td><span class="badge info">补充材料</span></td><td>合并新附件后重新审核，补齐则轮次清零并继续链路</td></tr>
+<tr><td><span class="badge info">进度查询</span></td><td>返回已持久化案件状态</td></tr>
+<tr><td><span class="badge info">条款咨询</span></td><td>理赔专用提示 + RAG 引用</td></tr>
+<tr><td><span class="badge warn">一般咨询</span></td><td>通用基模回答（无理赔约束）</td></tr>
+</table>
+<div class="note ok">💬 <b>上下文继承</b>：省略主语的追问（如「那金额是多少」）继承当前主题；明确的新问题允许切换主题。所以对话不必每次重复案情。</div>
+
+<h2>🎬 剧本 A：最短路径走完整链路（材料齐全）</h2>
+<div class="card">
+<p><b>前提</b>：服务已启动，浏览器打开 <code>http://127.0.0.1:8001/</code>。</p>
+<ol>
+<li>点击页面上的 <b>「载入演示」</b> 按钮 —— 注入材料齐全的合成案件（停车场刮擦，保单 <code>POL-2024-001</code>，金额 <code>1286.40</code>）。</li>
+<li>观察页面渲染的完整状态机：<b>报案受理 → 单证核查 → 保单核验 → 三专家并行 → 置信度融合 → 决策建议</b>。</li>
+<li>查看<b>决策链路</b>与每个节点的 <b>trace</b>（模型输入、耗时、输出）。</li>
+</ol>
+<p class="muted">该入口不调用真实业务系统，生产环境自动禁用。</p>
+</div>
+
+<h2>🎬 剧本 B：手动对话走完「缺材料 → 补材料 → 转人工」全分支</h2>
+<div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 👤 用户
+    participant W as 💬 工作台(SSE)
+    participant C as 意图分类器
+    participant M as 材料审核
+    participant G as LangGraph 状态机
+    U->>W: 「我的车在停车场被刮了，要理赔」
+    W->>C: 分类（最近6条+上轮意图）
+    C-->>W: 理赔报案
+    W->>M: 核查三类材料
+    M-->>U: ❌ 缺：保单号、事故证明、损失凭证（第1轮）
+    U->>W: 上传 保单照片 + 现场照片（补充材料）
+    W->>M: 保留累计附件，重新核查（第2轮）
+    M-->>U: ❌ 仍缺费用凭证
+    U->>W: 上传维修发票
+    M-->>W: ✅ 材料齐全，轮次清零
+    W->>G: intake → policy（核验 POL-2024-001）
+    G->>G: experts 三专家并行 → 置信度融合
+    alt 高风险案件
+        G-->>U: ⚠️ 挂起人工审核（保存检查点）
+        Note over U: 审核员用 X-Reviewer-Key<br/>POST /api/claims/{id}/review 恢复
+    else 正常案件
+        G-->>U: ✅ 受理建议 + 完整决策链路 trace
+    end
+</div>
+
+<h3>逐轮对话示例（可直接照抄体验）</h3>
+<pre><code># 第 1 轮 —— 故意不带保单号，触发补材料中断
+你：我的车昨天在小区停车场被刮蹭了，右后门划痕约30厘米，想申请理赔。
+
+系统：识别意图 = 理赔报案（置信度 0.9x）
+      材料审核：❌ 缺少 ①保单信息 ②事故/出险证明 ③费用/损失凭证
+      请补充上述材料（第 1/3 轮）
+
+# 第 2 轮 —— 追问继承主题，补充部分材料（上传保单照片 + 现场照片）
+你：（附件：保单.jpg、现场照片.jpg）保单和现场照片传上来了
+
+系统：识别意图 = 补充材料
+      材料审核：✅保单信息 ✅事故证明 ❌费用/损失凭证
+      保留已收附件，请补充维修发票或定损单（第 2/3 轮）
+
+# 第 3 轮 —— 补齐最后一类
+你：（附件：维修发票.pdf）发票在这里
+
+系统：材料齐全 ✅ 轮次清零 → 进入理赔链路
+      intake → policy（核验 POL-2024-001）→ 三专家并行 → 置信度融合
+      → 决策建议（正常：受理；高风险：挂起人工审核）
+      页面展示决策链路 + 每节点 trace</code></pre>
+
+<h2>⚡ SSE 流式问答事件流</h2>
+<div class="card">
+<p><code>POST /api/assistant/stream</code> 逐段推送（<code>data: {...}\n\n</code>），工作台实时渲染：</p>
+<pre><code>data: {"intent": "理赔报案", "intent_confidence": 0.93}      ← 意图识别完成
+data: {"trace": {"stage": "intent", "status": "running", ...}}  ← 节点 trace
+data: {"trace": {"stage": "material", "status": "done", "missing": [...]}}
+data: {"delta": "根据您提供的材料..."}                            ← 流式正文片段
+data: {"done": true}                                             ← 结束</code></pre>
+<p class="muted">trace 包含节点名、状态、模型名、耗时、输入输出摘要；附件仅在请求内存中处理，不落盘。</p>
+</div>
+
+<h2>🔌 curl 等价走法（API 直连全链路）</h2>
+<pre><code># 1) 创建审核工作流 —— 缺保单号 → 补材料中断
+curl -X POST http://127.0.0.1:8001/api/claims/process \
+  -H "Content-Type: application/json" \
+  -d '{"claim_id":"CLM-TEST-001","description":"测试：缺少保单号的报案"}'
+
+# 2) 补齐保单号 —— 仅补材料阶段接受 policy_id
+curl -X POST http://127.0.0.1:8001/api/claims/CLM-TEST-001/supplement \
+  -H "Content-Type: application/json" \
+  -d '{"policy_id":"POL-2024-001"}'
+
+# 3) 高风险案件挂起后，审核员恢复（Key 在 .env 的 REVIEWER_API_KEY）
+curl -X POST http://127.0.0.1:8001/api/claims/CLM-TEST-001/review \
+  -H "X-Reviewer-Key: &lt;REVIEWER_API_KEY&gt;"
+
+# 4) 随时查询已持久化案件状态
+curl http://127.0.0.1:8001/api/claims/CLM-TEST-001
+
+# 5) 纯对话流式问答（结合案件与单证上下文）
+curl -X POST http://127.0.0.1:8001/api/assistant/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message":"我的案件审核到哪一步了？"}'</code></pre>
+<div class="note bad">请求返回的是<b>审核建议</b>，不执行支付；拒赔需授权人工提供条款依据；低置信/证据不足/大额自动转人工。</div>
+
+<h2>🧾 对话附件 → 链路证据 的路径</h2>
+<div class="mermaid">
+flowchart LR
+    up["工作台上传<br/>PDF/DOCX/TXT/图片 ≤6份"] --> da["document_analysis<br/>内存解析·不落盘"] --> vision{"图片?"}
+    vision -->|是| vm["vision 模型识别<br/>（OpenAI 兼容多模态）"]
+    vision -->|否| tex["文本抽取"]
+    vm & tex --> mc["material_check<br/>三类材料核查"]
+    mc -->|"齐"| ev["证据似然 → 置信度系统"]
+    mc -->|"缺"| back["回流追问 ≤3轮"]
+</div>
+
+<h2>✅ 体验检查清单</h2>
+<div class="card">
+<ol>
+<li>☐ 点「载入演示」看完一次材料齐全的完整链路与 trace</li>
+<li>☐ 手动输入不带保单号的报案，触发补材料中断</li>
+<li>☐ 分两轮补齐三类材料，观察累计附件与轮次清零</li>
+<li>☐ 用 curl 走 process → supplement → review 三段 API</li>
+<li>☐ 发一条「条款咨询」和一条「一般咨询」，对比提示差异</li>
+<li>☐ 打开 /metrics 与 /docs 验证可观测性与交互文档</li>
+</ol>
+</div>
+
+<footer><a href="02-pipeline.html">← 上一页：完整链路</a> · <a href="04-ops.html">下一页：API·部署·运维 →</a></footer>
+</div>
+</body>
+</html>

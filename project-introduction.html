@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>理赔 Agent 项目介绍 · claims-ai-agent</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1e40af;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --accent: #0ea5e9;
+    --warn: #f59e0b;
+    --green: #10b981;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.75;
+  }
+  .hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #0ea5e9 100%);
+    color: #fff; padding: 72px 24px 64px; text-align: center;
+  }
+  .hero h1 { font-size: 2.4rem; margin-bottom: 14px; letter-spacing: 1px; }
+  .hero p { max-width: 860px; margin: 0 auto; opacity: .92; font-size: 1.08rem; }
+  .hero .badges { margin-top: 24px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.35);
+    padding: 5px 14px; border-radius: 999px; font-size: .85rem; backdrop-filter: blur(4px);
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { margin-bottom: 48px; }
+  h2 {
+    font-size: 1.5rem; margin-bottom: 18px; padding-left: 12px;
+    border-left: 5px solid var(--primary); color: var(--primary-dark);
+  }
+  h3 { font-size: 1.12rem; margin: 18px 0 10px; color: var(--primary-dark); }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px 28px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 18px;
+  }
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .feature { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .feature h4 { color: var(--primary-dark); margin-bottom: 8px; font-size: 1.02rem; }
+  .feature p { font-size: .92rem; color: var(--muted); }
+  .icon { font-size: 1.6rem; margin-bottom: 8px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; background: var(--card); border-radius: 10px; overflow: hidden; }
+  th, td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: #eff6ff; color: var(--primary-dark); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  code {
+    background: #f1f5f9; border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 6px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .86em; color: #be185d;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 18px 20px;
+    overflow-x: auto; font-size: .86rem; line-height: 1.6; margin: 12px 0;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre code { background: none; border: none; color: inherit; padding: 0; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+  .flow-step {
+    flex: 1 1 130px; background: var(--card); border: 2px solid var(--primary);
+    border-radius: 10px; padding: 12px 10px; text-align: center; font-size: .88rem; font-weight: 600;
+    color: var(--primary-dark); position: relative;
+  }
+  .flow-step small { display: block; font-weight: 400; color: var(--muted); margin-top: 4px; font-size: .76rem; }
+  .flow-arrow { align-self: center; color: var(--primary); font-size: 1.3rem; font-weight: bold; }
+  .note {
+    background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid var(--warn);
+    border-radius: 8px; padding: 14px 18px; font-size: .92rem; margin-top: 14px;
+  }
+  .tip {
+    background: #ecfdf5; border: 1px solid #a7f3d0; border-left: 5px solid var(--green);
+    border-radius: 8px; padding: 14px 18px; font-size: .92rem; margin-top: 14px;
+  }
+  ul, ol { padding-left: 24px; }
+  li { margin-bottom: 6px; }
+  footer { text-align: center; padding: 30px; color: var(--muted); font-size: .88rem; border-top: 1px solid var(--border); }
+  .tree { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .84rem; white-space: pre; overflow-x: auto; }
+  @media (max-width: 640px) { .hero h1 { font-size: 1.6rem; } }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🛡️ claims-ai-agent · 理赔智能体项目</h1>
+  <p>基于 <strong>LangChain 0.3 + LangGraph</strong> 的保险理赔审核智能体系统：多轮对话工作台、三专家并行风险分析、置信度评估、人机协同（HITL）审批、RAG 检索与全链路可观测，实现从报案到决策的完整理赔状态机。</p>
+  <div class="badges">
+    <span class="badge">Python 3.10+</span>
+    <span class="badge">FastAPI</span>
+    <span class="badge">LangGraph 状态机</span>
+    <span class="badge">Milvus 混合检索</span>
+    <span class="badge">Redis 记忆</span>
+    <span class="badge">LangFuse 追踪</span>
+    <span class="badge">Prometheus 监控</span>
+    <span class="badge">Docker 部署</span>
+  </div>
+</div>
+
+<main>
+
+<section id="overview">
+  <h2>一、项目概览</h2>
+  <div class="card">
+    <p>本项目是依据 <code>claims-langchain-training.md</code> 培训材料实现的<strong>分层理赔 Agent 系统</strong>，覆盖代码、演示、测试与部署配置。其核心原则是<strong>诚实的工程边界</strong>：</p>
+    <ul style="margin-top:10px">
+      <li>真实模式下未配置业务适配器会<strong>转人工处理</strong>，绝不返回假保单或虚构定损结果；</li>
+      <li>拒赔必须由授权人工提供条款依据；低置信度、证据不足或大额案件一律转人工；</li>
+      <li>本地推理为默认模式，云端（GLM / 百炼）需显式选择切换；</li>
+      <li>离线演示明确标注为合成数据，不代表真实模型或赔付系统已联通。</li>
+    </ul>
+    <div class="grid grid-3" style="margin-top:18px">
+      <div class="feature"><span class="icon">🤖</span><h4>智能审核编排</h4><p>LangGraph 驱动的理赔状态机，支持 Send 并行分发、人工审核中断与恢复、规划-执行循环。</p></div>
+      <div class="feature"><span class="icon">⚖️</span><h4>三专家风险分析</h4><p>结构化专家意见 + 本地模型调用，输出可解释的风险分析结论。</p></div>
+      <div class="feature"><span class="icon">📊</span><h4>置信度系统</h4><p>Softmax、熵、贝叶斯、多源融合、温度校准与 ECE 评估，量化每次决策的可信程度。</p></div>
+      <div class="feature"><span class="icon">🧠</span><h4>记忆管理</h4><p>窗口记忆、摘要压缩、实体冲突检测，支持 Redis 持久化。</p></div>
+      <div class="feature"><span class="icon">🔍</span><h4>RAG 混合检索</h4><p>文档加载 + Milvus 向量库，加权 RRF 混合检索与引用校验、可注入重排器。</p></div>
+      <div class="feature"><span class="icon">📈</span><h4>全链路可观测</h4><p>LangFuse v2 嵌套追踪（含脱敏回调）+ Prometheus 六组业务指标。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <h2>二、核心架构与理赔链路</h2>
+  <div class="card">
+    <h3>端到端审核流程</h3>
+    <div class="flow">
+      <div class="flow-step">📝 报案受理<small>描述 / 理赔文本</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">🔍 保单查询<small>policy_tool 核验</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">📥 补材料<small>缺失自动中断追问</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">👥 三专家并行<small>Send 消息分发</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">🎲 置信度融合<small>校准 + ECE</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">✅ 决策 / 转人工<small>HITL 审批</small></div>
+    </div>
+    <div class="note">⚠️ <strong>人机协同边界：</strong>低置信度、证据不足、大额案件自动转人工；写操作（赔付、通知）只有服务端 authorize 核对案件、金额、收款方等参数后才进入幂等 Outbox，且需审批通过。</div>
+
+    <h3>目录结构与职责</h3>
+    <pre class="tree"><code>claims-ai-agent/
+├── app.py                  # FastAPI 服务：状态查询、补材料、授权审核恢复
+├── settings.py             # Pydantic 环境配置与密钥校验
+├── config.py               # 本地模型工厂、四档缓存、任务参数
+├── claims_agent.py         # 端到端入口与离线演示
+├── confidence_system.py    # 置信度公共入口
+├── agents/                 # 编排、风险、置信度、记忆、中间件、可观测
+│   ├── claim_agent.py      # LangGraph、Send 并行、HITL、规划执行
+│   ├── risk_agent.py       # 结构化专家意见
+│   ├── confidence.py       # Softmax/熵/贝叶斯/融合/温度/ECE
+│   ├── memory.py           # 窗口、摘要、实体冲突、Redis
+│   ├── middleware_audit.py # 脱敏、限流、缓存、重试、审计、Token 统计
+│   └── observability.py    # LangFuse 嵌套追踪与脱敏回调
+├── tools/                  # 八类业务工具
+│   ├── policy_tool.py      # 保单及理赔历史查询
+│   ├── medical_tool.py     # 异步医保核验
+│   ├── rag_retrieval.py    # Milvus 混合检索与引用校验
+│   └── claim_write_producer.py  # 幂等 Outbox、重试、对账
+├── adapters/               # 真实接口 / 演示后端（未配置则显式失败）
+├── prompts/                # 四场景模板、动态规则
+├── models/                 # Pydantic 契约、有限修复、Schema 迁移
+├── tests/                  # 单元、SDK 协议、状态机、HTTP、Milvus 集成
+├── demos/                  # 模块演示与 Mermaid 架构图源码
+├── isolated_deep/          # 官方 Deep Agents 独立环境
+├── scripts/  deploy/       # 安装验证、基准、门禁、运维
+├── monitoring.py           # Prometheus 六组业务指标
+├── Dockerfile / docker-compose*.yml / deploy.sh / .github/workflows
+└── docs/                   # 实现验收清单、差异记录</code></pre>
+  </div>
+</section>
+
+<section id="features">
+  <h2>三、智能工作台（Web UI）功能</h2>
+  <div class="card">
+    <p>启动服务后访问 <code>http://127.0.0.1:8001/</code> 即可使用「理赔智能工作台」：</p>
+    <ul style="margin-top:10px">
+      <li><strong>多轮对话</strong> —— 分类器读取最近六条消息和上一轮意图：省略主语的追问继承当前主题，明确的新问题允许切换主题；</li>
+      <li><strong>五类理赔意图识别</strong> —— 进入理赔专用提示词和合规约束，一般咨询交给通用基模回答；</li>
+      <li><strong>单证智能解析</strong> —— 支持 PDF / DOCX / 文本抽取与图片视觉识别（OpenAI 兼容多模态消息），每次最多解析 6 份理赔单证，附件仅在内存中处理、<strong>不落盘</strong>；</li>
+      <li><strong>材料完整性审核</strong> —— 按附件类型核查保单信息、事故/出险证明、费用/损失凭证；缺失时保留累计附件并最多回流追问三轮，仍不完整则建议转人工，材料补齐后轮次清零并继续理赔链路；</li>
+      <li><strong>流式问答</strong> —— <code>/api/assistant/stream</code> 结合案件上下文和单证识别结果流式输出；</li>
+      <li><strong>演示模式</strong> —— 点击「载入演示」用固定合成案件运行完整状态机，查看报案、保单、三专家、置信度和决策全链路（不调用真实业务系统，生产环境自动禁用）。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="api">
+  <h2>四、HTTP API 一览</h2>
+  <table>
+    <tr><th>路由</th><th>行为说明</th></tr>
+    <tr><td><code>GET /health</code></td><td>进程存活检查（不代表模型可用）</td></tr>
+    <tr><td><code>POST /api/claims/process</code></td><td>创建审核工作流；缺保单号时进入补材料中断</td></tr>
+    <tr><td><code>POST /api/demo/claims/process</code></td><td>固定合成案件运行完整理赔状态机（仅非生产环境）</td></tr>
+    <tr><td><code>GET /api/claims/{claim_id}</code></td><td>查询已持久化案件状态（SQLite 检查点，重启可恢复）</td></tr>
+    <tr><td><code>POST /api/claims/{claim_id}/supplement</code></td><td>补材料阶段接受 policy_id</td></tr>
+    <tr><td><code>POST /api/claims/{claim_id}/review</code></td><td>X-Reviewer-Key 认证后恢复人工审核</td></tr>
+    <tr><td><code>POST /api/documents/analyze</code></td><td>内存解析并识别最多 6 份理赔单证</td></tr>
+    <tr><td><code>POST /api/assistant/stream</code></td><td>结合案件与单证上下文的流式问答</td></tr>
+    <tr><td><code>GET /metrics</code></td><td>Prometheus 格式业务指标</td></tr>
+    <tr><td><code>GET /docs</code> / <code>GET /</code></td><td>自动接口文档 / 理赔智能工作台</td></tr>
+  </table>
+  <div class="note">⚠️ 返回的是<strong>审核建议</strong>，不执行支付。生产环境必须配置 <code>CLAIMS_API_KEY</code> 与 <code>REVIEWER_API_KEY</code>；示例不支持多租户行级权限，也不能直接横向扩容。</div>
+</section>
+
+<section id="models">
+  <h2>五、模型接入：本地推理优先，云端显式切换</h2>
+  <div class="card">
+    <table>
+      <tr><th>模式</th><th>配置</th><th>说明</th></tr>
+      <tr>
+        <td><strong>local（默认）</strong></td>
+        <td><code>LOCAL_LLM_BASE_URL / API_KEY</code><br><code>LOCAL_FAST / MAIN / PRO / VISION_MODEL</code></td>
+        <td>连接本地推理服务（默认端口 8000）；模型名必须与推理服务实际注册名一致。</td>
+      </tr>
+      <tr>
+        <td><strong>bailian（云端）</strong></td>
+        <td><code>MODEL_PROVIDER=bailian</code><br><code>OPENAI_BASE_URL / API_KEY</code></td>
+        <td>默认指向 GLM 的 OpenAI 兼容端点（open.bigmodel.cn），plus/max/flash 三档默认 glm-5.3，vision 档为 glm-4v-plus。</td>
+      </tr>
+    </table>
+    <p style="margin-top:10px">模型服务需支持 OpenAI 兼容的 chat / JSON / tools 能力；部分流式服务不返回 usage，此时用量标记为「未知」，不声称零成本。</p>
+  </div>
+</section>
+
+<section id="rag-memory">
+  <h2>六、RAG 检索与记忆系统</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>📚 RAG 混合检索</h3>
+      <ul>
+        <li><code>load_documents</code> 要求险种、版本、生效日期齐全；</li>
+        <li><code>ClaimVectorStore</code> 基于 Milvus，默认不删除旧集合；</li>
+        <li>混合检索采用<strong>加权 RRF</strong> 融合，重排通过已核实的 reranker 函数注入；</li>
+        <li>带引用校验；扫描版 PDF 需另接 OCR。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🧠 上下文记忆</h3>
+      <ul>
+        <li><code>ClaimContextManager</code> 支持窗口记忆、摘要压缩、实体冲突检测；</li>
+        <li>可注入 Redis 客户端实现持久化；</li>
+        <li>摘要链与实体抽取器均可插拔；</li>
+        <li>Qwen 模型需注入匹配的 token_counter，默认 cl100k_base 仅作教学计数。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="quality">
+  <h2>七、安全、中间件与可观测性</h2>
+  <div class="card">
+    <div class="grid grid-3">
+      <div class="feature"><span class="icon">🕶️</span><h4>审计中间件</h4><p>脱敏、限流、缓存、重试、审计日志与 Token 用量统计，全链路贯穿。</p></div>
+      <div class="feature"><span class="icon">🔐</span><h4>写操作防护</h4><p>Outbox 幂等键 + 消费对账；通知也需审批；服务端逐项核对参数。</p></div>
+      <div class="feature"><span class="icon">📡</span><h4>LangFuse 追踪</h4><p>v2 嵌套 span + 脱敏回调，独立 docker-compose 自托管；Deep Agents 环境用 v3。</p></div>
+      <div class="feature"><span class="icon">📊</span><h4>Prometheus 指标</h4><p>六组业务指标经 <code>/metrics</code> 暴露，配套监控告警配置。</p></div>
+      <div class="feature"><span class="icon">🧪</span><h4>测试矩阵</h4><p>单元、SDK 协议、状态机、HTTP、契约提示词、发布门禁、可选 Milvus 集成测试。</p></div>
+      <div class="feature"><span class="icon">🚦</span><h4>上线门禁</h4><p><code>deploy.regression_gate</code> 固定历史数据集回归 + 成本预算检查后方可发布。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <h2>八、快速开始</h2>
+  <div class="card">
+    <h3>安装与离线验证</h3>
+<pre><code># Python 3.10 兼容（推荐干净环境）
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip check
+
+if [ ! -f .env ]; then cp .env.example .env; chmod 600 .env; fi
+
+python -m pytest -q                      # 测试
+python claims_agent.py --demo            # 端到端离线演示
+python -m demos.module04_demo --prompts  # 提示词演示
+python -m scripts.benchmark_parsers      # 解析基准</code></pre>
+
+    <h3>启动 HTTP 服务</h3>
+<pre><code>source .venv/bin/activate
+uvicorn app:app --host 127.0.0.1 --port 8001
+
+# 另一个终端验证
+curl -fsS http://127.0.0.1:8001/health
+python health_check.py</code></pre>
+
+    <h3>基础设施联调（需要 Docker）</h3>
+<pre><code>docker compose --profile infra up -d --wait etcd minio milvus redis
+RUN_MILVUS_TESTS=1 python -m pytest -q tests/test_milvus_integration.py
+
+# 自托管 LangFuse
+docker compose -f docker-compose.langfuse.yml up -d
+
+# 上线前门禁
+python -m deploy.regression_gate metrics.json --cost-budget 实际预算</code></pre>
+
+    <div class="tip">✅ 也可运行 <code>bash scripts/verify.sh</code> 一键完成「启动 + pytest」两条验证链路。</div>
+  </div>
+</section>
+
+<section id="deployment">
+  <h2>九、部署与运维</h2>
+  <div class="card">
+    <ul>
+      <li><strong>Dockerfile</strong>：非 root 用户运行、暴露 8001 端口、单工作进程；</li>
+      <li><strong>docker-compose.yml</strong>：应用 + Redis / Milvus（etcd / MinIO）完整基础设施栈；</li>
+      <li><strong>docker-compose.langfuse.yml</strong>：独立自托管 LangFuse 追踪平台；</li>
+      <li><strong>deploy.sh</strong>：固定镜像版本发布，失败自动回退；</li>
+      <li><strong>CI（GitHub Actions）</strong>：检查 → 测试 → 容器集成 → 构建 → 可选发布；自动部署默认<strong>关闭</strong>，须配置生产审批、SSH 信任与固定镜像后启用；</li>
+      <li><strong>deploy/ 目录</strong>：对拍、门禁、环境配置、监控告警与运维手册。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="docs">
+  <h2>十、延伸文档</h2>
+  <div class="card">
+    <ul>
+      <li><code>docs/implementation-matrix.md</code> —— 培训材料到代码的完整逐项映射与验证边界；</li>
+      <li><code>docs/material-differences.md</code> —— 原文 API 与业务规则的差异修正记录；</li>
+      <li><code>docs/structured-output.md</code> —— 结构化输出说明；</li>
+      <li><code>demos/</code> —— LangFuse 使用流程、RAG 五大核心流程图、本地部署架构图、理赔端到端状态机图、置信度评估系统架构图（Mermaid 源码）；</li>
+      <li><code>isolated_deep/README.md</code> —— 官方 Deep Agents 独立环境说明。</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>claims-ai-agent · 理赔 Agent 培训材料实现 · 本页面由项目结构自动生成于 2025-10</footer>
+</body>
+</html>

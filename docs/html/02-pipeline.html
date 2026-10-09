@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>完整链路 — 理赔 Agent</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#182250', primaryBorderColor: '#5b8cff', lineColor: '#5b8cff', fontSize: '14px' } });</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>🔗 完整链路：从报案到决策建议</h1>
+  <p>9 个阶段的端到端状态机 · 三专家并行 · 置信度融合 · 4 条终局分支 · HITL 人工闭环</p>
+</header>
+
+<nav class="top">
+  <a href="index.html">🏠 项目总览</a>
+  <a href="01-architecture.html">🏗️ 架构与模块</a>
+  <a class="active" href="02-pipeline.html">🔗 完整链路</a>
+  <a href="03-dialogue.html">💬 对话走链路</a>
+  <a href="04-ops.html">⚙️ API·部署·运维</a>
+</nav>
+
+<h2>🌐 端到端状态机全景图（9 阶段）</h2>
+<div class="mermaid">
+flowchart LR
+    intake["1. 收集报案材料"] --> complete{"材料是否齐全"}
+    complete -->|"否且不足三轮"| supplement["2. 暂停等待补充<br/>interrupt(information)"]
+    supplement --> intake
+    complete -->|"是"| policy["3. 核实保单与证据"]
+    complete -->|"已达三轮"| review["7. 人工复核并保存检查点"]
+    policy -->|"失败或缺配置"| review
+    policy -->|"成功"| experts["4. 并行：定损·风控·判责"]
+    experts --> route{"5. 汇总风险及证据<br/>置信度融合"}
+    route -->|"风险高于0.7"| investigate["6. 调查核实"]
+    route -->|"大额 缺证据 低置信 或分歧"| review
+    route -->|"证据核实且高置信低风险"| accept["8. 受理建议"]
+    review -->|"授权审核员恢复<br/>X-Reviewer-Key"| result["9. 记录人工意见"]
+    investigate --> result
+</div>
+<div class="note bad">⚠️ 图中的结果均为<b>审核建议</b>，不自动付款；拒赔必须由授权审核员提供核实后的条款依据。</div>
+
+<h2>⏱️ 三专家并行时序图（阶段 4→5 细节）</h2>
+<div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant P as policy 节点
+    participant G as experts 节点
+    participant D as 定损专家
+    participant R as 风控专家
+    participant L as 判责专家
+    participant A as aggregate 汇总
+    participant C as confidence 置信度融合
+    P->>G: 已核实案件数据 + 证据
+    par Send 并行分发
+        G->>D: 结构化意见请求
+        D-->>A: {意见, 评分, 依据}
+    and
+        G->>R: 结构化意见请求
+        R-->>A: {意见, 风险分, 依据}
+    and
+        G->>L: 结构化意见请求
+        L-->>A: {意见, 责任判定, 依据}
+    end
+    A->>C: 三份意见 + 证据似然
+    C->>C: Softmax/熵/贝叶斯融合 + 温度缩放 + ECE
+    C-->>G: 综合评分 + 决策路由
+</div>
+
+<h2>🔀 决策路由规则表（阶段 5）</h2>
+<table>
+<tr><th>条件</th><th>去向</th><th>说明</th></tr>
+<tr><td>风险评分 &gt; 0.7</td><td><span class="badge warn">investigate 调查核实</span></td><td>高风险案件先核实再决策</td></tr>
+<tr><td>大额 / 证据不足 / 低置信度 / 专家分歧</td><td><span class="badge bad">review 人工复核</span></td><td>HITL 中断，保存检查点等待授权恢复</td></tr>
+<tr><td>证据核实 且 高置信 且 低风险</td><td><span class="badge ok">auto 受理建议</span></td><td>输出审核建议（不执行支付）</td></tr>
+<tr><td>材料缺失（未满三轮）</td><td><span class="badge info">interrupt(information)</span></td><td>回流 intake，累计附件，追问最多三轮</td></tr>
+<tr><td>三轮仍不齐</td><td><span class="badge bad">建议转人工</span></td><td>材料轮次清零仅在补齐后</td></tr>
+<tr><td>保单核验失败/未配置适配器</td><td><span class="badge bad">review</span></td><td>显式失败，不伪造保单数据</td></tr>
+</table>
+
+<h2>🔄 HITL 人工复核闭环</h2>
+<div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant G as LangGraph
+    participant DB as SQLite 检查点<br/>(.data/checkpoints.sqlite)
+    participant API as POST /api/claims/{id}/review
+    participant R as 授权审核员
+    G->>DB: interrupt(review) 保存现场
+    G-->>API: 挂起响应（原因：低置信/大额/证据不足）
+    R->>API: X-Reviewer-Key + 审核意见（拒赔需条款依据）
+    API->>DB: 恢复检查点
+    DB->>G: resume 从 review 节点继续
+    G-->>R: 记录人工意见 → END
+</div>
+
+<h2>🧪 三个离线演示场景（对照三条分支）</h2>
+<div class="grid c3">
+<div class="card">
+<h3>✅ normal</h3>
+<pre><code>python claims_agent.py --demo</code></pre>
+<p class="muted">材料齐全 → 受理建议（accept）</p>
+</div>
+<div class="card">
+<h3>⚠️ risk</h3>
+<pre><code>python claims_agent.py --demo --scenario risk</code></pre>
+<p class="muted">高风险 → 调查核实（investigate）</p>
+</div>
+<div class="card">
+<h3>❓ missing</h3>
+<pre><code>python claims_agent.py --demo --scenario missing</code></pre>
+<p class="muted">缺保单 → 补材料中断</p>
+</div>
+</div>
+
+<h2>🧭 链路中的数据形态流转</h2>
+<div class="mermaid">
+flowchart LR
+    u["用户输入<br/>description / claim_text<br/>可选 policy_id·amount"] --> req["ClaimRequest<br/>(Pydantic 校验)"]
+    req --> st["LangGraph State<br/>(TypedDict)"]
+    st --> op1["结构化专家意见 ×3<br/>(risk_agent)"]
+    op1 --> fuse["置信度融合结果<br/>评分+校准指标"]
+    fuse --> resp["ClaimResponse<br/>审核建议+完整 trace"]
+    subgraph persist["持久化"]
+        ck[("SQLite 检查点")]
+        rd[("Redis 记忆(可选)")]
+    end
+    st -.每节点.-> ck
+    st -.上下文.-> rd
+</div>
+
+<h2>📎 单证与证据如何进入链路</h2>
+<div class="card">
+<ol>
+<li><b>对话附件</b>：工作台上传 PDF/DOCX/文本/图片 → <code>POST /api/documents/analyze</code> 内存解析（最多 6 份，不落盘）；图片走 vision 模型识别。</li>
+<li><b>材料审核</b>：按附件类型核查三类材料 —— ①保单信息 ②事故/出险证明 ③费用/损失凭证；缺失则保留累计附件并回流追问，最多三轮。</li>
+<li><b>进入状态机</b>：材料补齐后（轮次清零）继续理赔链路，证据似然供置信度系统使用。</li>
+</ol>
+</div>
+
+<h2>🔍 决策链路可观测性</h2>
+<div class="grid c2">
+<div class="card">
+<h3>Prometheus（GET /metrics）</h3>
+<p>六组业务指标：案件处理量、分支走向、置信度分布、Token 用量等，配 <code>deploy/</code> 告警规则。</p>
+</div>
+<div class="card">
+<h3>LangFuse v2 嵌套追踪</h3>
+<p><code>agents/observability.py</code> 脱敏回调：意图分类 → 专家调用 → 置信度融合，形成嵌套 trace 树；工作台对话页每个节点也会推送 trace 事件（SSE）。</p>
+</div>
+</div>
+
+<footer><a href="01-architecture.html">← 上一页：架构与模块</a> · <a href="03-dialogue.html">下一页：对话走链路 →</a></footer>
+</div>
+</body>
+</html>
